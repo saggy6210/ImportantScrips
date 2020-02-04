@@ -79,7 +79,24 @@ EOL
         sudo systemctl status mongod
         rm -rf $APP_DIR/security_enablement.js
 }
-
+function awscliCheck() {
+    # Install pip 
+    echo "--------------------------------------------"
+    echo "pip check:- "
+	curl "https://bootstrap.pypa.io/get-pip.py" -o "get-pip.py" &> /dev/null
+	yum install python -y &> /dev/null
+    python get-pip.py &> /dev/null
+    echo "pip is Installed"
+    # Install AWS CLI using pip
+    echo "AWS CLI check:- "
+    pip install awscli &> /dev/null
+	aws --version
+    echo "AWS CLI is Installed"
+    echo "--------------------------------------------"
+    echo
+    echo
+}
+awscliCheck
 dockerCheck
 dockerComposeCheck
 installMongo
