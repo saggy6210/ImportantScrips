@@ -17,40 +17,27 @@ parser.add_argument('--tenantid', default="Unknown")
 args = parser.parse_args()
 
 def startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader):
-    isOperationCompletedSuccessfully = 0
-    
+    vmStatus = ""
     try:
         if operation == 'stop':
-            isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-            if isSucceeded == 2:
-                print ("VM is already in stopped state", vmName)
-                isOperationCompletedSuccessfully = 1
-            else: 
-                print('Shutting Down This ', vmName, 'VM')
-                requesturl = "https://management.azure.com/subscriptions/" + subscriptionId + "/resourceGroups/"+ resourceGroupName +"/providers/Microsoft.Compute/virtualMachines/"+ vmName +"/powerOff?api-version=2019-03-01"
-                status = requests.post(url=requesturl, headers=requestHeader)
-                print ("Status Code: ", status.status_code)
-                if status.status_code == 200 or status.status_code == 202:
-                    isOperationCompletedSuccessfully = 1
+            print('Shutting Down ', vmName, 'VM')
+            requesturl = "https://management.azure.com/subscriptions/" + subscriptionId + "/resourceGroups/"+ resourceGroupName +"/providers/Microsoft.Compute/virtualMachines/"+ vmName +"/powerOff?api-version=2019-03-01"
+            status = requests.post(url=requesturl, headers=requestHeader)
+            if status.status_code == 200 or status.status_code == 202:
+                vmStatus = "stopping"
         elif operation == 'start':
-            isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-            if isSucceeded == 1:
-                print ("VM is already in stopped state", vmName)
-                isOperationCompletedSuccessfully = 1
-            else:
-                print('Starting VM ', vmName)
-                requesturl = "https://management.azure.com/subscriptions/" + subscriptionId + "/resourceGroups/"+ resourceGroupName +"/providers/Microsoft.Compute/virtualMachines/"+ vmName +"/start?api-version=2019-03-01"
-                status = requests.post(url=requesturl, headers=requestHeader)
-                print ("Status Code: ", status.status_code)
-                if status.status_code == 200 or status.status_code == 202:
-                    isOperationCompletedSuccessfully = 1
+            print("Starting ", vmName, " VM")
+            requesturl = "https://management.azure.com/subscriptions/" + subscriptionId + "/resourceGroups/"+ resourceGroupName +"/providers/Microsoft.Compute/virtualMachines/"+ vmName +"/start?api-version=2019-03-01"
+            status = requests.post(url=requesturl, headers=requestHeader)
+            if status.status_code == 200 or status.status_code == 202:
+                vmStatus = "starting"
         else:
             print ("Invalid Operation")
             exit()
     except Exception as e:
         print("error getting in start/stop VM opration, GETALL %s due to exception %s", requesturl, e)
     finally:
-        return isOperationCompletedSuccessfully 
+        return vmStatus 
 
 def getLoginData(clientId, clientSecret, tenantId): 
     URI = "https://login.microsoftonline.com/"+ tenantId +"/oauth2/token?api-version=1.0"
@@ -65,22 +52,29 @@ def getLoginData(clientId, clientSecret, tenantId):
     headers = {'Authorization': 'Bearer ' + str(accesstoken)}
     return headers
 
-def verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader):
+def verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader):
     requesturl = "https://management.azure.com/subscriptions/" + subscriptionId + "/resourceGroups/" + resourceGroupName +"/providers/Microsoft.Compute/virtualMachines/" + vmName + "/instanceView?api-version=2019-03-01"
     isSucceeded = 0
     status = {}
     status = requests.get(url=requesturl, headers=requestHeader).content
     response = json.loads(status)
-    # print ("Curent Status: ", response['statuses'][1]['code'])
-    print ("Curent Status: ",response['statuses'][1]['displayStatus'])
-    # print(response['properties']['provisioningState'])
-    if (response['statuses'][1]['displayStatus']) == 'VM running':
-        isSucceeded = 1
-        print ("Operation Completed Successfully")
-        return isSucceeded
-    elif (response['statuses'][1]['displayStatus']) == 'VM stopped':
-        isSucceeded = 2
-        return isSucceeded   
+    print ("Curent Status is: ",response['statuses'][1]['displayStatus']," for VM : ", vmName)
+    if operation == "start":
+        if (response['statuses'][1]['displayStatus']) == 'VM running':
+            isSucceeded = 1
+            return isSucceeded
+        else:
+            isSucceeded = 0
+            return isSucceeded    
+    else:
+        if (response['statuses'][1]['displayStatus']) == 'VM stopped':
+            isSucceeded = 1
+            return isSucceeded   
+        else:
+            isSucceeded = 0
+            return isSucceeded  
+
+
 
 def sanityProvision(sanityfile, option, operation, subscriptionId, requestHeader):
     configFile = sanityfile
@@ -102,52 +96,85 @@ def sanityProvision(sanityfile, option, operation, subscriptionId, requestHeader
         vmData = jsonConfigData[option]
         vmName = vmData['vmname']
         resourceGroupName = vmData ['resourceGroupName']
-        # verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-        vmStatus = startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
-        if vmStatus == 1:
-            print ("Running", operation, "operation on ", vmName)
-            isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-            count = 0
-            while count <= 6:
-                if isSucceeded == 1:
-                    print ("Vm is Up & Running :", vmName)
-                    break
-                elif isSucceeded == 2:
-                    print ("Vm is in stopped state :", vmName)
-                    break     
-                else:
-                    print ("Waiting to complete the operation..")
-                    count += 1
-                    time.sleep(10)
-                    isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-        else: 
-            print ("Failed while ", operation, "operation on ", vmName)
+        print ("Running ", operation, "operation on ", vmName)
+        if operation == "start":
+            isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+            if isSucceeded == 1:
+                print ("Vm ", vmName, " is Up & Running " )
+                print ("----------------------------------")
+                print()
+            else:
+                startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                while True: 
+                    isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                    if isSucceeded == 1:
+                        print ("Vm ", vmName, " is Up & Running " )
+                        print ("----------------------------------")
+                        print()
+                        break
+                    else: 
+                        print("Waiting to UP and running the vm ", vmName)
+                        time.sleep(10)
+        else:
+            isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+            if isSucceeded == 1:
+                print ("Vm ", vmName, " is in stopped state " )
+                print ("----------------------------------")
+                print()
+            else:
+                startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                while True: 
+                    isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                    if isSucceeded == 1:
+                        print ("Vm ", vmName, " is in stopped state " )
+                        print ("----------------------------------")
+                        print()
+                        break
+                    else: 
+                        print ("Waiting to stopped Vm ", vmName )
+                        time.sleep(10)
     else:
         nodes = json.dumps(jsonConfigData[option])
         for item in json.loads(nodes):
             vmName = item['vmname']
             resourceGroupName =  item['resourceGroupName']
-            print (vmName, resourceGroupName)
-            # verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-            vmStatus = startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
-            if vmStatus == 1:
-                print ("Running ", operation, "operation on ", vmName)
-                isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-                count = 0
-                while count <= 6:
-                    if isSucceeded == 1:
-                        print ("Vm is Up & Running :", vmName)
-                        break
-                    elif isSucceeded == 2:
-                        print ("Vm is in stopped state :", vmName)
-                        break 
-                    else:
-                        print ("Waiting to complete the operation..")
-                        count += 1
-                        time.sleep(20)
-                        isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, requestHeader)
-            else: 
-                print ("Failed while ", operation, "operation on ", vmName)
+            print ("Running ", operation, "operation on ", vmName)
+            if operation == "start":
+                isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                if isSucceeded == 1:
+                    print ("Vm ", vmName, " is Up & Running " )
+                    print ("----------------------------------")
+                    print()
+                else:
+                    startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                    while True: 
+                        isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                        if isSucceeded == 1:
+                            print ("Vm ", vmName, " is Up & Running " )
+                            print ("----------------------------------")
+                            print()
+                            break
+                        else: 
+                            print("Waiting to UP and running the vm ", vmName)
+                            time.sleep(10)
+            else:
+                isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                if isSucceeded == 1:
+                    print ("Vm ", vmName, " is in stopped state " )
+                    print ("----------------------------------")
+                    print()
+                else:
+                    startStopOperation(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                    while True: 
+                        isSucceeded = verifyStatus(subscriptionId, resourceGroupName, vmName, operation, requestHeader)
+                        if isSucceeded == 1:
+                            print ("Vm ", vmName, " is in stopped state " )
+                            print ("----------------------------------")
+                            print()
+                            break
+                        else: 
+                            print ("Waiting to stopped Vm ", vmName )
+                            time.sleep(10)
 
 if __name__ == "__main__": 
     sanityfile = args.sanityfile
@@ -159,3 +186,4 @@ if __name__ == "__main__":
     tenantid = args.tenantid
     requestHeader = getLoginData(clientid, clientsecret, tenantid)
     sanityProvision(sanityfile, option, operation, subscriptionid, requestHeader)
+
