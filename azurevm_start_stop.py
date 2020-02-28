@@ -2,7 +2,7 @@
 import json, requests, argparse, time
 
 __version__ = '1.0.0'
-__description__ = "This script is to start/stop the virtual machine on Azure"
+__description__ = "This script is used to start/stop the virtual machine on Azure"
 __Author__="Sagar Chavan <SChavan@cloudhedge.io>"
 
 # class AzureInfra:
